@@ -52,6 +52,10 @@ decisiontree_classifier_baseline = joblib.load('./model/decisiontree_classifier_
 decisiontree_regressor_optimum = joblib.load('./model/decisiontree_regressor_optimum.pkl')
 label_encoders_1b = joblib.load('./model/label_encoders_1b.pkl')
 
+# Naive Bayes models
+naive_bayes_classifier_optimum = joblib.load('./model/naive_Bayes_classifier_optimum.pkl')
+label_encoders_2 = joblib.load('./model/label_encoders_2.pkl')
+
 # Defines an HTTP endpoint
 @app.route('/api/v1/models/decision-tree-classifier/predictions', methods=['POST'])
 def predict_decision_tree_classifier():
@@ -218,6 +222,104 @@ def predict_decision_tree_regressor():
 # This means:
 ## The server will automatically reload if you make code changes.
 ## You get detailed error messages in the browser if something goes wrong.
+@app.route('/api/v1/models/naive-bayes-classifier/predictions', methods=['POST'])
+def predict_naive_bayes_classifier():
+    # Expected input keys (all 17 features):
+    # 'Administrative', 'Administrative_Duration', 'Informational',
+    # 'Informational_Duration', 'ProductRelated', 'ProductRelated_Duration',
+    # 'BounceRates', 'ExitRates', 'PageValues', 'SpecialDay',
+    # 'Month', 'OperatingSystems', 'Browser', 'Region', 'TrafficType',
+    # 'VisitorType', 'Weekend'
+    data = request.get_json()
+
+    new_data = pd.DataFrame([data])
+
+    # Encode categorical columns using the saved label encoders
+    for col in ['VisitorType', 'Weekend', 'Month']:
+        if col in new_data.columns:
+            new_data[col] = label_encoders_2[col].transform(new_data[col])
+
+    # Define the expected feature order (based on the order used during training)
+    expected_features = [
+        'Administrative', 'Administrative_Duration',
+        'Informational', 'Informational_Duration',
+        'ProductRelated', 'ProductRelated_Duration',
+        'BounceRates', 'ExitRates', 'PageValues', 'SpecialDay',
+        'Month', 'OperatingSystems', 'Browser', 'Region',
+        'TrafficType', 'VisitorType', 'Weekend'
+    ]
+
+    # Reorder and select only the expected columns
+    new_data = new_data[expected_features]
+
+    # Predict: 0 = No Revenue, 1 = Revenue
+    prediction = naive_bayes_classifier_optimum.predict(new_data)[0]
+    probability = naive_bayes_classifier_optimum.predict_proba(new_data)[0].tolist()
+
+    return jsonify({
+        'Predicted Class': int(prediction),
+        'Predicted Label': 'Revenue' if prediction == 1 else 'No Revenue',
+        'Probability [No Revenue, Revenue]': probability
+    })
+
+# *1* Sample JSON POST values
+# {
+#     "Administrative": 2,
+#     "Administrative_Duration": 50.0,
+#     "Informational": 0,
+#     "Informational_Duration": 0.0,
+#     "ProductRelated": 20,
+#     "ProductRelated_Duration": 400.0,
+#     "BounceRates": 0.02,
+#     "ExitRates": 0.05,
+#     "PageValues": 0.0,
+#     "SpecialDay": 0.0,
+#     "Month": "Nov",
+#     "OperatingSystems": 2,
+#     "Browser": 1,
+#     "Region": 1,
+#     "TrafficType": 2,
+#     "VisitorType": "Returning_Visitor",
+#     "Weekend": "False"
+# }
+
+# *2.a.* Sample cURL POST values (without HTTPS)
+# curl -X POST http://127.0.0.1:5000/api/v1/models/naive-bayes-classifier/predictions \
+#   -H "Content-Type: application/json" \
+#   -d "{\"Administrative\": 2, \"Administrative_Duration\": 50.0, \"Informational\": 0, \"Informational_Duration\": 0.0, \"ProductRelated\": 20, \"ProductRelated_Duration\": 400.0, \"BounceRates\": 0.02, \"ExitRates\": 0.05, \"PageValues\": 0.0, \"SpecialDay\": 0.0, \"Month\": \"Nov\", \"OperatingSystems\": 2, \"Browser\": 1, \"Region\": 1, \"TrafficType\": 2, \"VisitorType\": \"Returning_Visitor\", \"Weekend\": \"False\"}"
+
+# *2.b.* Sample cURL POST values (with HTTPS)
+# curl --insecure -X POST https://127.0.0.1/api/v1/models/naive-bayes-classifier/predictions \
+#   -H "Content-Type: application/json" \
+#   -d "{\"Administrative\": 2, \"Administrative_Duration\": 50.0, \"Informational\": 0, \"Informational_Duration\": 0.0, \"ProductRelated\": 20, \"ProductRelated_Duration\": 400.0, \"BounceRates\": 0.02, \"ExitRates\": 0.05, \"PageValues\": 0.0, \"SpecialDay\": 0.0, \"Month\": \"Nov\", \"OperatingSystems\": 2, \"Browser\": 1, \"Region\": 1, \"TrafficType\": 2, \"VisitorType\": \"Returning_Visitor\", \"Weekend\": \"False\"}"
+
+# *3* Sample PowerShell values:
+# $body = @{
+#     Administrative           = 2
+#     Administrative_Duration  = 50.0
+#     Informational            = 0
+#     Informational_Duration   = 0.0
+#     ProductRelated           = 20
+#     ProductRelated_Duration  = 400.0
+#     BounceRates              = 0.02
+#     ExitRates                = 0.05
+#     PageValues               = 0.0
+#     SpecialDay               = 0.0
+#     Month                    = "Nov"
+#     OperatingSystems         = 2
+#     Browser                  = 1
+#     Region                   = 1
+#     TrafficType              = 2
+#     VisitorType              = "Returning_Visitor"
+#     Weekend                  = "False"
+# } | ConvertTo-Json
+
+# Invoke-RestMethod -Uri http://127.0.0.1:5000/api/v1/models/naive-bayes-classifier/predictions `
+#     -Method POST `
+#     -Body $body `
+#     -ContentType "application/json"
+
+
 if __name__ == '__main__':
     app.run(debug=True)
 # if __name__ == '__main__':
