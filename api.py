@@ -52,6 +52,11 @@ decisiontree_classifier_baseline = joblib.load('./model/decisiontree_classifier_
 decisiontree_regressor_optimum = joblib.load('./model/decisiontree_regressor_optimum.pkl')
 label_encoders_1b = joblib.load('./model/label_encoders_1b.pkl')
 
+# kNN model artifacts (Notebook 3)
+knn_classifier_optimum = joblib.load('./model/knn_classifier_optimum.pkl')
+knn_scaler = joblib.load('./model/scaler_3.pkl')
+knn_onehot_encoder = joblib.load('./model/onehot_encoder_3.pkl')
+
 # Defines an HTTP endpoint
 @app.route('/api/v1/models/decision-tree-classifier/predictions', methods=['POST'])
 def predict_decision_tree_classifier():
@@ -91,7 +96,7 @@ def predict_decision_tree_classifier():
 
 # curl -X POST http://127.0.0.1:5000/api/v1/models/decision-tree-classifier/predictions \
 #   -H "Content-Type: application/json" \
-#   -d "{\"monthly_fee\": 60, \"customer_age\": 30, \"support_calls\": 1}"
+#  -d "{\"monthly_fee\": 60, \"customer_age\": 30, \"support_calls\": 1}"
 
 # *2.b.* Sample cURL POST values (with HTTPS in NGINX and Gunicorn)
 
@@ -204,6 +209,113 @@ def predict_decision_tree_regressor():
 #     -Method POST `
 #     -Body $body `
 #     -ContentType "application/json"
+
+@app.route('/api/v1/models/knn-classifier/predictions', methods=['POST'])
+def predict_knn_classifier():
+    """
+    Predict late delivery risk using the optimum kNN classifier.
+
+    Expected JSON input:
+    {
+        "Days for shipping (real)": 3,
+        "Days for shipment (scheduled)": 4,
+        "Order Item Quantity": 1,
+        "Sales": 250.00,
+        "Order Profit Per Order": 64.17,
+        "Shipping Mode": "Second Class"
+    }
+
+    Valid values for "Shipping Mode": "First Class", "Same Day",
+    "Second Class", "Standard Class"
+
+    Returns:
+    {
+        "Predicted_Late_Delivery_Risk": 1,
+        "Probability_On_Time (Class 0)": 0.33,
+        "Probability_Late_Delivery (Class 1)": 0.67
+    }
+    """
+    data = request.get_json()
+
+    # Build a single-row DataFrame with the raw features
+    new_data = pd.DataFrame([{
+        'Days for shipping (real)':      data.get('Days for shipping (real)'),
+        'Days for shipment (scheduled)': data.get('Days for shipment (scheduled)'),
+        'Order Item Quantity':           data.get('Order Item Quantity'),
+        'Sales':                         data.get('Sales'),
+        'Order Profit Per Order':        data.get('Order Profit Per Order'),
+        'Shipping Mode':                 data.get('Shipping Mode')
+    }])
+
+    # One-hot encode 'Shipping Mode' using the saved encoder (drop='first')
+    encoded = knn_onehot_encoder.transform(new_data[['Shipping Mode']])
+    encoded_df = pd.DataFrame(
+        encoded,
+        columns=knn_onehot_encoder.get_feature_names_out(['Shipping Mode']),
+        index=new_data.index
+    )
+
+    # Drop the original categorical column and append the encoded columns
+    new_data = pd.concat(
+        [new_data.drop('Shipping Mode', axis=1), encoded_df],
+        axis=1
+    )
+
+    # Scale features using the saved StandardScaler
+    new_data_scaled = knn_scaler.transform(new_data)
+
+    # Predict class and class probabilities
+    prediction   = knn_classifier_optimum.predict(new_data_scaled)[0]
+    probabilities = knn_classifier_optimum.predict_proba(new_data_scaled)[0]
+
+    return jsonify({
+        'Predicted_Late_Delivery_Risk':      int(prediction),
+        'Probability_On_Time (Class 0)':     round(float(probabilities[0]), 4),
+        'Probability_Late_Delivery (Class 1)': round(float(probabilities[1]), 4)
+    })
+
+# *1* Sample JSON POST values
+# {
+#     "Days for shipping (real)": 3,
+#     "Days for shipment (scheduled)": 4,
+#     "Order Item Quantity": 1,
+#     "Sales": 250.00,
+#     "Order Profit Per Order": 64.17,
+#     "Shipping Mode": "Second Class"
+# }
+
+# *2.a.* Sample cURL POST values (without HTTPS)
+
+# curl -X POST http://127.0.0.1:5000/api/v1/models/knn-classifier/predictions \
+#   -H "Content-Type: application/json" \
+#   -d "{\"Days for shipping (real)\": 3, \"Days for shipment (scheduled)\": 4, \
+#        \"Order Item Quantity\": 1, \"Sales\": 250.00, \
+#        \"Order Profit Per Order\": 64.17, \"Shipping Mode\": \"Second Class\"}"
+
+# *2.b.* Sample cURL POST values (with HTTPS in NGINX and Gunicorn)
+
+# curl --insecure -X POST https://127.0.0.1/api/v1/models/knn-classifier/predictions \
+#   -H "Content-Type: application/json" \
+#   -d "{\"Days for shipping (real)\": 3, \"Days for shipment (scheduled)\": 4, \
+#        \"Order Item Quantity\": 1, \"Sales\": 250.00, \
+#        \"Order Profit Per Order\": 64.17, \"Shipping Mode\": \"Second Class\"}"
+
+# *3* Sample PowerShell values:
+
+# $body = @{
+#     "Days for shipping (real)"      = 3
+#     "Days for shipment (scheduled)" = 4
+#     "Order Item Quantity"           = 1
+#     "Sales"                         = 250.00
+#     "Order Profit Per Order"        = 64.17
+#     "Shipping Mode"                 = "Second Class"
+# } | ConvertTo-Json
+
+# Invoke-RestMethod -Uri http://127.0.0.1:5000/api/v1/models/knn-classifier/predictions `
+#     -Method POST `
+#     -Body $body `
+#     -ContentType "application/json"
+
 
 # This ensures the Flask web server only starts when you run this file directly
 # (e.g., `python api.py`), and not if you import api.py from another script or test.
