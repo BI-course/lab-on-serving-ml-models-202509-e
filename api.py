@@ -57,6 +57,39 @@ knn_classifier_optimum = joblib.load('./model/knn_classifier_optimum.pkl')
 knn_scaler = joblib.load('./model/scaler_3.pkl')
 knn_onehot_encoder = joblib.load('./model/onehot_encoder_3.pkl')
 
+# k-Means clustering artifacts (Notebook 6)
+# The KMeans model predicts which customer segment (cluster 0–4) a client belongs to.
+# Features used: Age, Annual Income (k$), Spending Score (1-100)
+# Cluster profiles (from elbow method optimal k=5):
+#   Cluster 0 – Young, high income,  targeted premium spenders
+#   Cluster 1 – Young, low-medium income, average spenders
+#   Cluster 2 – Mature, high income, low spenders
+#   Cluster 3 – Mature, female-majority, low income, frugal
+#   Cluster 4 – Middle-aged, medium income, luxury shoppers
+kmeans_model = joblib.load('./model/kmeans_model_6.pkl')
+kmeans_scaler = joblib.load('./model/scaler_6.pkl')
+
+# Association Rule Learning artifacts (Notebook 7a)
+# Rules were mined from the Hahsler et al. (2011) "groceries" dataset
+# (9,835 market basket transactions) using the Apriori algorithm.
+# The top rules (by lift then confidence) are stored in a CSV file,
+# with antecedents and consequents as frozenset strings.
+import ast
+import re
+
+def _parse_frozenset(s: str) -> frozenset:
+    """Parse a frozenset string like "frozenset({'item1', 'item2'})" back to frozenset."""
+    match = re.match(r"frozenset\((.*)\)", str(s).strip())
+    if match:
+        return frozenset(ast.literal_eval(match.group(1)))
+    # Fallback: plain set string e.g. "{'item1'}"
+    return frozenset(ast.literal_eval(str(s).strip()))
+
+_raw_rules = pd.read_csv('./rule/top_rules_7a.csv')
+_raw_rules['antecedents'] = _raw_rules['antecedents'].apply(_parse_frozenset)
+_raw_rules['consequents'] = _raw_rules['consequents'].apply(_parse_frozenset)
+association_rules_df = _raw_rules  # columns: antecedents, consequents, support, confidence, lift
+
 # Defines an HTTP endpoint
 @app.route('/api/v1/models/decision-tree-classifier/predictions', methods=['POST'])
 def predict_decision_tree_classifier():
@@ -312,6 +345,199 @@ def predict_knn_classifier():
 # } | ConvertTo-Json
 
 # Invoke-RestMethod -Uri http://127.0.0.1:5000/api/v1/models/knn-classifier/predictions `
+#     -Method POST `
+#     -Body $body `
+#     -ContentType "application/json"
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: k-Means Cluster Classifier (Notebook 6)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/v1/models/kmeans-classifier/predictions', methods=['POST'])
+def predict_kmeans_cluster():
+    """
+    Predict the customer segment (cluster) a client belongs to using the
+    k-Means model trained on the Mall Customers dataset (k=5, random_state=53).
+
+    The model was fitted on three standardised features:
+        - Age
+        - Annual Income (k$)
+        - Spending Score (1-100)
+
+    Expected JSON input:
+    {
+        "Age": 30,
+        "Annual Income (k$)": 60,
+        "Spending Score (1-100)": 45
+    }
+
+    Returns:
+    {
+        "Predicted_Cluster": 1,
+        "Cluster_Profile": "Young, low-medium income, average spenders"
+    }
+
+    Cluster profiles (derived from post-hoc analysis of cluster centroids):
+        0 – Young, high income, targeted premium spenders
+        1 – Young, low-medium income, average spenders
+        2 – Mature, high income, low spenders
+        3 – Mature, female-majority, low income, frugal
+        4 – Middle-aged, medium income, luxury shoppers
+    """
+    # Human-readable profiles for each cluster label
+    CLUSTER_PROFILES = {
+        0: "Young, high income, targeted premium spenders",
+        1: "Young, low-medium income, average spenders",
+        2: "Mature, high income, low spenders",
+        3: "Mature, female-majority, low income, frugal",
+        4: "Middle-aged, medium income, luxury shoppers"
+    }
+
+    data = request.get_json()
+
+    # Build a single-row DataFrame with the features used during training
+    new_data = pd.DataFrame([{
+        'Age':                        data.get('Age'),
+        'Annual Income (k$)':         data.get('Annual Income (k$)'),
+        'Spending Score (1-100)':     data.get('Spending Score (1-100)')
+    }])
+
+    # Apply the same StandardScaler that was fitted during training
+    new_data_scaled = kmeans_scaler.transform(new_data)
+
+    # Predict the cluster label
+    cluster = int(kmeans_model.predict(new_data_scaled)[0])
+
+    return jsonify({
+        'Predicted_Cluster':  cluster,
+        'Cluster_Profile':    CLUSTER_PROFILES.get(cluster, 'Unknown')
+    })
+
+# *1* Sample JSON POST values
+# {
+#     "Age": 30,
+#     "Annual Income (k$)": 60,
+#     "Spending Score (1-100)": 45
+# }
+
+# *2.a.* Sample cURL POST values (without HTTPS)
+#
+# curl -X POST http://127.0.0.1:5000/api/v1/models/kmeans-classifier/predictions \
+#   -H "Content-Type: application/json" \
+#   -d "{\"Age\": 30, \"Annual Income (k$)\": 60, \"Spending Score (1-100)\": 45}"
+
+# *2.b.* Sample cURL POST values (with HTTPS via NGINX and Gunicorn)
+#
+# curl --insecure -X POST https://127.0.0.1/api/v1/models/kmeans-classifier/predictions \
+#   -H "Content-Type: application/json" \
+#   -d "{\"Age\": 30, \"Annual Income (k$)\": 60, \"Spending Score (1-100)\": 45}"
+
+# *3* Sample PowerShell values:
+#
+# $body = @{
+#     "Age"                    = 30
+#     "Annual Income (k$)"     = 60
+#     "Spending Score (1-100)" = 45
+# } | ConvertTo-Json
+#
+# Invoke-RestMethod -Uri http://127.0.0.1:5000/api/v1/models/kmeans-classifier/predictions `
+#     -Method POST `
+#     -Body $body `
+#     -ContentType "application/json"
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: Association Rule Recommender (Notebook 7a)
+# ---------------------------------------------------------------------------
+
+@app.route('/api/v1/models/association-rules/recommendations', methods=['POST'])
+def recommend_products():
+    """
+    Recommend grocery products based on association rules mined with the
+    Apriori algorithm on the Hahsler et al. (2011) "groceries" dataset
+    (9,835 market basket transactions).
+
+    Rules are loaded from './rule/top_rules_7a.csv' and ranked by lift then
+    confidence.  For every rule whose antecedent is a subset of the client's
+    current cart, the consequent items are added to the recommendation list
+    (items already in the cart are excluded from the output).
+
+    Expected JSON input:
+    {
+        "cart": ["matoke", "maziwa mala"]
+    }
+
+    Returns:
+    {
+        "cart": ["matoke", "maziwa mala"],
+        "recommendations": ["beans"],
+        "rules_matched": [
+            {
+                "antecedents": ["maziwa mala"],
+                "consequents": ["beans"],
+                "support": 0.4,
+                "confidence": 1.0,
+                "lift": 1.25
+            }
+        ]
+    }
+
+    If no rules match the cart, an empty recommendations list is returned.
+    """
+    data = request.get_json()
+
+    cart_list = data.get('cart', [])
+    if not isinstance(cart_list, list):
+        return jsonify({'error': "'cart' must be a JSON array of item strings."}), 400
+
+    cart = set(item.strip().lower() for item in cart_list)
+
+    recommendations = set()
+    matched_rules = []
+
+    for _, rule in association_rules_df.iterrows():
+        # A rule fires when every antecedent item is present in the cart
+        if rule['antecedents'].issubset(cart):
+            new_items = rule['consequents'] - cart  # exclude items already in cart
+            if new_items:
+                recommendations.update(new_items)
+                matched_rules.append({
+                    'antecedents': sorted(rule['antecedents']),
+                    'consequents': sorted(rule['consequents']),
+                    'support':     round(float(rule['support']),    4),
+                    'confidence':  round(float(rule['confidence']), 4),
+                    'lift':        round(float(rule['lift']),        4)
+                })
+
+    return jsonify({
+        'cart':            sorted(cart),
+        'recommendations': sorted(recommendations),
+        'rules_matched':   matched_rules
+    })
+
+# *1* Sample JSON POST values
+# {
+#     "cart": ["matoke", "maziwa mala"]
+# }
+
+# *2.a.* Sample cURL POST values (without HTTPS)
+#
+# curl -X POST http://127.0.0.1:5000/api/v1/models/association-rules/recommendations \
+#   -H "Content-Type: application/json" \
+#   -d "{\"cart\": [\"matoke\", \"maziwa mala\"]}"
+
+# *2.b.* Sample cURL POST values (with HTTPS via NGINX and Gunicorn)
+#
+# curl --insecure -X POST https://127.0.0.1/api/v1/models/association-rules/recommendations \
+#   -H "Content-Type: application/json" \
+#   -d "{\"cart\": [\"matoke\", \"maziwa mala\"]}"
+
+# *3* Sample PowerShell values:
+#
+# $body = @{ "cart" = @("matoke", "maziwa mala") } | ConvertTo-Json
+#
+# Invoke-RestMethod -Uri http://127.0.0.1:5000/api/v1/models/association-rules/recommendations `
 #     -Method POST `
 #     -Body $body `
 #     -ContentType "application/json"

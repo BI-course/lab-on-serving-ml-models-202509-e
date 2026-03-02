@@ -1,0 +1,11 @@
+antecedents,consequents,support,confidence,lift
+frozenset({'sukuma wiki'}),frozenset({'kienyeji chicken'}),0.2,1.0,5.0
+"frozenset({'matoke', 'sukuma wiki'})",frozenset({'kienyeji chicken'}),0.2,1.0,5.0
+"frozenset({'matoke', 'kienyeji chicken'})",frozenset({'sukuma wiki'}),0.2,1.0,5.0
+frozenset({'beans'}),frozenset({'maziwa mala'}),0.8,1.0,1.25
+frozenset({'beans'}),"frozenset({'matoke', 'maziwa mala'})",0.8,1.0,1.25
+frozenset({'maziwa mala'}),"frozenset({'matoke', 'beans'})",0.8,1.0,1.25
+frozenset({'mango'}),frozenset({'beans'}),0.4,1.0,1.25
+"frozenset({'mango', 'maziwa mala'})",frozenset({'beans'}),0.4,1.0,1.25
+"frozenset({'mango', 'beans'})",frozenset({'maziwa mala'}),0.4,1.0,1.25
+frozenset({'ndizi'}),frozenset({'beans'}),0.4,1.0,1.25
