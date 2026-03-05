@@ -52,6 +52,11 @@ decisiontree_classifier_baseline = joblib.load('./model/decisiontree_classifier_
 decisiontree_regressor_optimum = joblib.load('./model/decisiontree_regressor_optimum.pkl')
 label_encoders_1b = joblib.load('./model/label_encoders_1b.pkl')
 
+#SVM Model 
+support_vector_classifier_optimum = joblib.load('./model/support_vector_classifier_optimum.pkl')
+scaler_5 = joblib.load('./model/scaler_5.pkl')
+label_encoders_5 = joblib.load('./model/label_encoders_5.pkl')
+
 # Defines an HTTP endpoint
 @app.route('/api/v1/models/decision-tree-classifier/predictions', methods=['POST'])
 def predict_decision_tree_classifier():
@@ -205,6 +210,37 @@ def predict_decision_tree_regressor():
 #     -Body $body `
 #     -ContentType "application/json"
 
+@app.route('/api/v1/models/svm-classifier/predictions', methods=['POST'])
+def predict_svm_classifier():
+    data = request.get_json()
+
+    #dataframe creation
+    new_data = pd.DataFrame([data])
+
+    #Define expected features
+    expected_features = [
+        'Administrative', 'Administrative_Duration', 'Informational',
+        'Informational_Duration', 'ProductRelated', 'ProductRelated_Duration',
+        'BounceRates', 'ExitRates', 'PageValues', 'SpecialDay',
+        'Month', 'OperatingSystems', 'Browser', 'Region', 'TrafficType', 'VisitorType', 'Weekend'
+    ]
+
+    #Reorder and select only the expected columns
+    new_data = new_data[expected_features]
+
+    #Encode categorical columns
+    categorical_cols = ['Month', 'VisitorType', 'Weekend']
+    for col in categorical_cols:
+        if col in new_data:
+            new_data[col] = label_encoders_5[col].transform(new_data[col])
+
+    #scale features
+    new_data_scaled = scaler_5.transform(new_data)   
+
+    #predict
+    prediction = support_vector_classifier_optimum.predict(new_data_scaled)[0]  
+
+    return jsonify({'Predicted Class = ': int(prediction)})   
 # This ensures the Flask web server only starts when you run this file directly
 # (e.g., `python api.py`), and not if you import api.py from another script or test.
 
